@@ -8,10 +8,9 @@ library(data.table)
 library(dplyr)
 library(ggplot2)
 library(readr)
-library(devtools)
 library(MASS)
 library(tidyr)
-devtools::load_all("C:/Users/isaac/Documents/Simon_Lab/EZbakR/")
+library(EZbakR)
 library(rtracklayer)
 library(GenomicFeatures)
 library(tximport)
@@ -26,6 +25,27 @@ library(forcats)
 # kdeg estimates
 EZbakR_estimates <- "C:/Users/isaac/Box/TimeLapse/Annotation_gamut/DataTables/RNAdeg_data_model_features.csv"
 ActD_estimates <- "C:/Users/isaac/Documents/Simon_Lab/Isoform_Kinetics/Data/ML_features/ActD_kdeg_ests.csv"
+
+
+# EZbakRFits
+ezbdo_Mix <- "C:/Users/isaac/Documents/Simon_Lab/Isoform_Kinetics/Data/Annotation_gamut_analyses/mix_trimmed/Mix_trimmed_EZbakRFit.rds"
+ezbdo_SRonly <- "C:/Users/isaac/Documents/Simon_Lab/Isoform_Kinetics/Data/Annotation_gamut_analyses/SRonly_trimmed/SRonly_trimmed_EZbakRFit.rds"
+ezbdo_RefSeq <- "C:/Users/isaac/Documents/Simon_Lab/Isoform_Kinetics/Data/Annotation_gamut_analyses/refseq/RefSeq_EZbakRFit.rds"
+ezbdo_Ensembl <- "C:/Users/isaac/Documents/Simon_Lab/Isoform_Kinetics/Data/Annotation_gamut_analyses/refseq/RefSeq_EZbakRFit.rds"
+
+
+# factR2 transcripts info
+factR2_Mix <- "C:/Users/isaac/Box/TimeLapse/Annotation_gamut/Annotations/factR2/mix_trimmed/mix_trimmed_factR2_transcript.tsv"
+factR2_SRonly <- "C:/Users/isaac/Box/TimeLapse/Annotation_gamut/Annotations/factR2/SRonly_trimmed/SRonly_trimmed_factR2_transcript.tsv"
+factR2_RefSeq <- "C:/Users/isaac/Box/TimeLapse/Annotation_gamut/Annotations/factR2/refseq/hg38_refseq_factR2_transcript.tsv"
+factR2_Ensembl <- "C:/Users/isaac/Box/TimeLapse/Annotation_gamut/Annotations/factR2/ensembl/Hs_ensembl_113 _factR2_transcript.tsv"
+
+
+
+# NRsim analyses
+rsem_perfect_annotation <- "C:/Users/isaac/Yale University/Simon Lab – RNA - Documents/IWV/Hogg_lab/fastq2EZbakR/NRsim_premRNA_truegtf/rsem/sim_1.isoforms.results"
+rsem_flawed_annotation <- "C:/Users/isaac/Yale University/Simon Lab – RNA - Documents/IWV/Hogg_lab/fastq2EZbakR/NRsim_premRNA_unrefined_gtf/rsem/sim_1.isoforms.results"
+ground_truth_path <- "C:/Users/isaac/Yale University/Simon Lab – RNA - Documents/IWV/Hogg_lab/Simulations/PEval_preRNA_refseq/generate_transcript_kinetics/kinetics.csv"
 
 
 # Isoform features for LASSO regression
@@ -155,6 +175,531 @@ compare_replicates <- function(df, x, y,
   
   
 }
+
+
+# How bad does RSEM get with messy annotation? ---------------------------------
+
+
+##### Load data #####
+
+### RSEM estimates
+rsem_clean <- fread(rsem_perfect_annotation)
+rsem_unclean <- fread(rsem_flawed_annotation)
+
+### Ground truth
+gt <- fread(ground_truth_path)
+
+
+##### Process data #####
+
+combine_clean <- right_join(
+  gt %>%
+    dplyr::select(
+      transcript_id, TPM_adj, norm_reads
+    ),
+  rsem_clean,
+  by = "transcript_id"
+)
+
+
+combine_unclean <- right_join(
+  gt %>%
+    dplyr::select(
+      transcript_id, TPM_adj, norm_reads
+    ),
+  rsem_unclean,
+  by = "transcript_id"
+)
+
+
+gclean <- combine_clean %>%
+  dplyr::filter(!is.na(TPM_adj) | TPM > 0) %>%
+  mutate(
+    estimated_reads = ifelse(expected_count == 0,
+                             runif(nrow(combine_unclean), 0, 0.1),
+                             expected_count),
+    true_reads = ifelse(is.na(norm_reads),
+                        runif(nrow(combine_unclean), 0, 0.1),
+                        norm_reads * 10000000)
+  ) %>%
+  dplyr::select(
+    estimated_reads, true_reads
+  ) %>%
+  na.omit() %>%
+  mutate(
+    density = get_density(
+      x = log10(true_reads + 1),
+      y = log10(estimated_reads + 1),
+      n = 300
+    )
+  ) %>%
+  ggplot(aes(x = log10(true_reads + 1),
+             y = log10(estimated_reads + 1),
+             color = density)) + 
+  geom_point(size = 0.3) + 
+  theme_classic() +
+  scale_color_viridis_c() + 
+  xlab("log10(true reads + 1)") + 
+  ylab("log10(Estimated reads + 1)") +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    color = 'darkred',
+    linewidth = 0.4,
+    linetype = 'dotted'
+  ) +
+  theme(
+    axis.text=element_text(size=10), #change font size of axis text
+    axis.title=element_text(size=12), #change font size of axis titles
+    legend.text=element_text(size=10), #change font size of legend text
+    legend.title=element_text(size=12)) + #change font size of legend title
+  theme(legend.position = "none")
+
+
+
+gunclean <- combine_unclean %>%
+  dplyr::filter(!is.na(TPM_adj) | TPM > 0) %>%
+  mutate(
+    estimated_reads = ifelse(expected_count == 0,
+                             runif(nrow(combine_unclean), 0, 0.1),
+                             expected_count),
+    true_reads = ifelse(is.na(norm_reads),
+                        runif(nrow(combine_unclean), 0, 0.1),
+                        norm_reads * 10000000)
+  ) %>%
+  dplyr::select(
+    estimated_reads, true_reads
+  ) %>%
+  na.omit() %>%
+  mutate(
+    density = get_density(
+      x = log10(true_reads + 1),
+      y = log10(estimated_reads + 1),
+      n = 300
+    )
+  ) %>%
+  ggplot(aes(x = log10(true_reads + 1),
+             y = log10(estimated_reads + 1),
+             color = density)) + 
+  geom_point(size = 0.3) + 
+  theme_classic() +
+  scale_color_viridis_c() + 
+  xlab("log10(true reads + 1)") + 
+  ylab("log10(Estimated reads + 1)") +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    color = 'darkred',
+    linewidth = 0.4,
+    linetype = 'dotted'
+  ) +
+  theme(
+    axis.text=element_text(size=10), #change font size of axis text
+    axis.title=element_text(size=12), #change font size of axis titles
+    legend.text=element_text(size=10), #change font size of legend text
+    legend.title=element_text(size=12)) + #change font size of legend title
+  theme(legend.position = "none")
+
+
+
+setwd(figure_savedir)
+ggsave(filename = "RSEM_acc_perfect_annotation.pdf",
+       plot = gclean,
+       width = 3.25,
+       height = 2.75)
+ggsave(filename = "RSEM_acc_flawed_annotation.pdf",
+       plot = gunclean,
+       width = 3.25,
+       height = 2.75)
+
+
+
+# Kinetic parameter plot like that made by Justin and Bobby --------------------
+
+
+##### Load EZbakR analyses #####
+
+avg_mix <- readRDS(ezbdo_Mix) %>%
+  EZget(type = "averages",
+        features = "transcript_id",
+        exactMatch = FALSE)
+
+avg_sr <- readRDS(ezbdo_SRonly) %>%
+  EZget(type = "averages",
+        features = "transcript_id",
+        exactMatch = FALSE)
+
+avg_refseq <- readRDS(ezbdo_RefSeq) %>%
+  EZget(type = "averages",
+        features = "transcript_id",
+        exactMatch = FALSE)
+
+avg_ensembl <- readRDS(ezbdo_Ensembl) %>%
+  EZget(type = "averages",
+        features = "transcript_id",
+        exactMatch = FALSE)
+
+
+comp_mix <- readRDS(ezbdo_Mix) %>%
+  EZget(type = "comparisons",
+        features = "transcript_id",
+        exactMatch = FALSE)
+
+comp_sr <- readRDS(ezbdo_SRonly) %>%
+  EZget(type = "comparisons",
+        features = "transcript_id",
+        exactMatch = FALSE)
+
+comp_refseq <- readRDS(ezbdo_RefSeq) %>%
+  EZget(type = "comparisons",
+        features = "transcript_id",
+        exactMatch = FALSE)
+
+comp_ensembl <- readRDS(ezbdo_Ensembl) %>%
+  EZget(type = "comparisons",
+        features = "transcript_id",
+        exactMatch = FALSE)
+
+
+
+##### Load factR2 annotations #####
+
+factr2_mix <- fread(factR2_Mix)
+factr2_sronly <- fread(factR2_SRonly)
+factr2_refseq <- fread(factR2_RefSeq)
+factr2_ensembl <- fread(factR2_Ensembl)
+
+### Process
+
+# Average log(kdeg)'s
+mix_PTC <- factr2_mix %>%
+  filter(cds == "yes") %>%
+  dplyr::select(transcript_id, is_NMD)
+
+sronly_PTC <- factr2_sronly %>%
+  filter(cds == "yes") %>%
+  dplyr::select(transcript_id, is_NMD)
+
+
+refseq_PTC <- factr2_refseq %>%
+  filter(cds == "yes") %>%
+  dplyr::select(transcript_id, is_NMD)
+
+ensembl_PTC <- factr2_ensembl %>%
+  filter(cds == "yes") %>%
+  dplyr::select(transcript_id, is_NMD)
+
+
+
+### Combine PTC with kinetic parameter estimates
+
+combined_mix <- avg_mix %>%
+  dplyr::inner_join(
+    mix_PTC,
+    by = "transcript_id"
+  )
+
+
+combined_sr <- avg_sr %>%
+  dplyr::inner_join(
+    sronly_PTC,
+    by = "transcript_id"
+  )
+
+
+combined_refseq <- avg_refseq %>%
+  dplyr::inner_join(
+    refseq_PTC,
+    by = "transcript_id"
+  )
+
+combined_ensembl <- avg_ensembl %>%
+  dplyr::inner_join(
+    ensembl_PTC,
+    by = "transcript_id"
+  )
+
+
+##### Make density plots
+
+
+all_analyses <- bind_rows(list(
+  combined_mix %>%
+    mutate(annotation = "Mix"),
+  combined_sr %>%
+    mutate(annotation = "SRonly"),
+  combined_refseq %>%
+    mutate(annotation = "RefSeq"),
+  combined_ensembl %>%
+    mutate(annotation = "Ensembl")
+)
+) %>%
+  mutate(
+    annotation = factor(annotation,
+                        levels = c("Ensembl", "RefSeq", "SRonly", "Mix")),
+    LFC_kdeg = mean_treatment11j - mean_treatmentDMSO
+  )
+
+
+all_analyses %>%
+  ggplot(
+    aes(x = mean_treatmentDMSO,
+        color = annotation)
+  ) +
+  geom_density() + 
+  theme_classic() + 
+  scale_color_manual(
+    values = c("#004488", "#6699CC", "#44AA99", "#DDCC77")
+  ) +  xlab("DMSO log(kdeg)") + 
+  ylab("Density") +
+  coord_cartesian(
+    xlim = c(-5, 1)
+  )
+
+
+all_analyses %>%
+  ggplot(
+    aes(x = mean_treatment11j,
+        color = annotation)
+  ) +
+  geom_density() + 
+  theme_classic() + 
+  scale_color_manual(
+    values = c("#004488", "#6699CC", "#44AA99", "#DDCC77")
+  ) +  xlab("SGM1i log(kdeg)") + 
+  ylab("Density") +
+  coord_cartesian(
+    xlim = c(-5, 1)
+  )
+
+
+all_analyses %>%
+  ggplot(
+    aes(x = log(2)/exp(mean_treatment11j),
+        color = annotation,
+        fill = annotation)
+  ) +
+  geom_histogram(
+    alpha = 0.1,
+    position = "identity",
+    binwidth = 0.2,
+    aes(y = after_stat(count / sum(count)))
+  ) + 
+  theme_classic() + 
+  scale_color_manual(
+    values = c("#004488", "#6699CC", "#44AA99", "#DDCC77")
+  ) +  scale_fill_viridis_d() + 
+  xlab("SGM1i log(kdeg)") + 
+  ylab("Density") +
+  coord_cartesian(xlim = c(0, 30))
+
+
+
+all_analyses %>%
+  filter(
+    annotation == "Ensembl"
+  ) %>%
+  ggplot(
+    aes(x = LFC_kdeg*log2(exp(1)),
+        color = is_NMD,
+        fill = is_NMD)
+  ) +
+  geom_density(
+    alpha = 0.2
+  ) +
+  scale_color_manual(
+    values = c("darkgray",
+               "darkred")
+  ) +
+  scale_fill_manual(
+    values = c("darkgray",
+               "darkred")
+  ) +
+  theme_classic()  +
+  xlab("L2FC(kdeg)") +
+  ylab("Density") +
+  coord_cartesian(
+    xlim = c(-4, 3)
+  )
+
+
+
+all_analyses %>%
+  filter(
+    annotation == "RefSeq"
+  ) %>%
+  ggplot(
+    aes(x = LFC_kdeg*log2(exp(1)),
+        color = is_NMD,
+        fill = is_NMD)
+  ) +
+  geom_density(
+    alpha = 0.2
+  ) +
+  scale_color_manual(
+    values = c("darkgray",
+               "darkred")
+  ) +
+  scale_fill_manual(
+    values = c("darkgray",
+               "darkred")
+  ) +
+  theme_classic() +
+  xlab("L2FC(kdeg)") +
+  ylab("Density")
+
+
+
+L2FC_violins <- all_analyses %>%
+  ggplot(
+    aes(x = LFC_kdeg*log2(exp(1)),
+        y = annotation,
+        color = annotation,
+        fill = annotation)
+  ) +
+  geom_violin(
+    color = 'black',
+    linewidth = 0.1
+  ) +
+  geom_boxplot(
+    color = "black",
+    fill = "gray90",
+    outlier.fill = NA,
+    outlier.color = NA,
+    notch = TRUE,
+    width = 0.25,
+    linewidth = 0.25
+  ) +
+  scale_color_manual(
+    values = c("#004488", "#6699CC", "#44AA99", "#DDCC77")
+  ) +
+  scale_fill_manual(
+    values = c("#004488", "#6699CC", "#44AA99", "#DDCC77")
+  ) +
+  facet_grid(
+    rows = vars(is_NMD)
+  ) +
+  theme_classic() +
+  xlab("L2FC(kdeg)") +
+  ylab("Annotation") +
+  theme(
+    legend.position = "none",
+    axis.text=element_text(size=8), #change font size of axis text
+    axis.title=element_text(size=10)
+  ) +
+  coord_cartesian(
+    xlim = c(-3, 1.25)
+  )
+
+
+
+DMSO_violins <- all_analyses %>%
+  ggplot(
+    aes(x = mean_treatmentDMSO,
+        y = annotation,
+        color = annotation,
+        fill = annotation)
+  ) +
+  geom_violin(
+    color = 'black',
+    linewidth = 0.1
+  ) +
+  geom_boxplot(
+    color = "black",
+    fill = "gray90",
+    outlier.fill = NA,
+    outlier.color = NA,
+    notch = TRUE,
+    width = 0.25,
+    linewidth = 0.25
+  ) +
+  scale_color_manual(
+    values = c("#004488", "#6699CC", "#44AA99", "#DDCC77")
+  ) +
+  scale_fill_manual(
+    values = c("#004488", "#6699CC", "#44AA99", "#DDCC77")
+  ) +
+  facet_grid(
+    rows = vars(is_NMD)
+  ) +
+  theme_classic() +
+  xlab("DMSO log(kdeg)") +
+  ylab("Annotation") +
+  theme(
+    legend.position = "none",
+    axis.text=element_text(size=8), #change font size of axis text
+    axis.title=element_text(size=10)
+  ) +
+  coord_cartesian(
+    xlim = c(-5, 1)
+  )
+
+
+
+SMG1i_violins <- all_analyses %>%
+  ggplot(
+    aes(x = mean_treatment11j,
+        y = annotation,
+        color = annotation,
+        fill = annotation)
+  ) +
+  geom_violin(
+    color = 'black',
+    linewidth = 0.1
+  ) +
+  geom_boxplot(
+    color = "black",
+    fill = "gray90",
+    outlier.fill = NA,
+    outlier.color = NA,
+    notch = TRUE,
+    width = 0.25,
+    linewidth = 0.25
+  ) +
+  scale_color_manual(
+    values = c("#004488", "#6699CC", "#44AA99", "#DDCC77")
+  ) +
+  scale_fill_manual(
+    values = c("#004488", "#6699CC", "#44AA99", "#DDCC77")
+  ) +
+  facet_grid(
+    rows = vars(is_NMD)
+  ) +
+  theme_classic() +
+  xlab("SGM1i log(kdeg)") +
+  ylab("Annotation") +
+  theme(
+    legend.position = "none",
+    axis.text=element_text(size=8), #change font size of axis text
+    axis.title=element_text(size=10)
+  ) +
+  coord_cartesian(
+    xlim = c(-5, 1)
+  )
+
+
+
+setwd(figure_savedir)
+ggsave(
+  filename = "L2FC_violins.pdf",
+  plot = L2FC_violins,
+  width = 3,
+  height = 3
+)
+ggsave(
+  filename = "DMSO_violins.pdf",
+  plot = DMSO_violins,
+  width = 3,
+  height = 3
+)
+ggsave(
+  filename = "SMG1i_violins.pdf",
+  plot = SMG1i_violins,
+  width = 3,
+  height = 3
+)
+
+
 
 
 # Transcription inhibition comparison ------------------------------------------
