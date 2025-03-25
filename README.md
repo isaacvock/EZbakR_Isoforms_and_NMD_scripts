@@ -1,5 +1,5 @@
 # EZbakR_Isoforms_and_NMD_scripts
-Scripts to accompany paper describing transcript isoform stability analyses.
+Scripts to accompany paper describing transcript isoform stability analyses. Deposition of all scripts and data in progress.
 
 [EZbakR repo link](https://github.com/isaacvock/EZbakR)
 
