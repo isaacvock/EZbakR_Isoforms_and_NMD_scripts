@@ -7,4 +7,4 @@ Scripts to accompany paper describing transcript isoform stability analyses.
 
 [Tutorial for performing isoform-level analyses](https://github.com/isaacvock/Isoform_Analysis_Tutorial)
 
-[Figshare link (Figures 1-3 and related supplemental)](https://figshare.com/projects/EZbakR_NMD_Isoform_Paper/242501)
+[Figshare link](https://figshare.com/projects/EZbakR_NMD_Isoform_Paper/242501)
